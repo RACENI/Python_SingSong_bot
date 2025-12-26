@@ -3,6 +3,11 @@ from discord.ext import commands
 import asyncio
 import yt_dlp
 from youtube_search import YoutubeSearch
+import os
+from dotenv import load_dotenv
+
+load_dotenv()
+
 
 bot = commands.Bot(command_prefix='-')
 
@@ -184,4 +189,9 @@ async def Open(ctx, *, arg):
     except:
         await ctx.send("Open Error")
 
-bot.run('')
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if TOKEN is None:
+    raise ValueError("DISCORD_TOKEN이 설정되지 않았습니다.")
+
+bot.run(TOKEN)
