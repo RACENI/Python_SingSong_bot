@@ -6,6 +6,8 @@ from discord.ext import commands
 
 from app.presentation.views.search_view import SearchView, render_search_embed
 from app.services.music_service import MusicService, SearchSession
+from app.presentation.voice.voice_manager import VoiceManager
+
 
 
 def make_embed(title: str = "", description: str = "") -> discord.Embed:
@@ -15,44 +17,10 @@ class MusicCog(commands.Cog):
     def __init__(self, bot: commands.Bot, service: MusicService) -> None:
         self.bot = bot
         self.service = service
-
-    def _ensure_guild(self, ctx: commands.Context) -> None:
-        if ctx.guild is None:
-            raise RuntimeError("DM에서는 사용할 수 없습니다. 서버에서 사용하십시오.")
+        self.voice_manager = VoiceManager()
 
     async def _send(self, ctx: commands.Context, title: str, desc: str = "") -> None:
         await ctx.send(embed=make_embed(title, desc))
-
-    async def ensure_connected(self, ctx: commands.Context) -> discord.VoiceClient:
-        self._ensure_guild(ctx)
-        if not ctx.author.voice or not ctx.author.voice.channel:
-            raise RuntimeError("음성 채널에 먼저 들어가셔야 합니다.")
-
-        channel = ctx.author.voice.channel
-        voice = ctx.guild.voice_client
-
-        if voice is None:
-            voice = await channel.connect()
-        elif voice.channel != channel:
-            await voice.move_to(channel)
-        return voice
-
-    async def ensure_connected_interaction(self, interaction: discord.Interaction) -> discord.VoiceClient:
-        if interaction.guild is None:
-            raise RuntimeError("서버에서만 사용할 수 있습니다.")
-        if interaction.user is None or not isinstance(interaction.user, discord.Member):
-            raise RuntimeError("사용자 정보를 확인할 수 없습니다.")
-        if not interaction.user.voice or not interaction.user.voice.channel:
-            raise RuntimeError("음성 채널에 먼저 들어가셔야 합니다.")
-
-        channel = interaction.user.voice.channel
-        voice = interaction.guild.voice_client
-
-        if voice is None:
-            voice = await channel.connect()
-        elif voice.channel != channel:
-            await voice.move_to(channel)
-        return voice
     
     def _make_send_func(self, ctx: commands.Context):
         async def send(title: str, desc: str) -> None:
@@ -75,7 +43,7 @@ class MusicCog(commands.Cog):
     @commands.command(aliases=["search", "srch", "find"])
     async def Search(self, ctx: commands.Context, *, keyword: str) -> None:
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             session = self.service.start_search(
                 guild_id=ctx.guild.id,
@@ -104,7 +72,7 @@ class MusicCog(commands.Cog):
                 return
 
             track = session.pick(n)
-            voice = await self.ensure_connected_interaction(interaction)
+            voice = await self.voice_manager.ensure_connected_interaction(interaction)
 
             state = self.service.state(interaction.guild.id)
             await state.enqueue(track)
@@ -131,7 +99,7 @@ class MusicCog(commands.Cog):
     @commands.command(aliases=["play", "p", "ㅔ"])
     async def Play(self, ctx: commands.Context, *, keyword: str) -> None:
         try:
-            voice = await self.ensure_connected(ctx)
+            voice = await self.voice_manager.ensure_connected_ctx(ctx)
 
             track = self.service.search_one(keyword)
             if not track:
@@ -155,7 +123,7 @@ class MusicCog(commands.Cog):
         현재 큐 목록을 출력합니다.
         """
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             state = self.service.state(ctx.guild.id)
             items = await state.snapshot()
@@ -177,7 +145,7 @@ class MusicCog(commands.Cog):
         현재 곡을 중지하고 다음 곡으로 넘어갑니다.
         """
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             voice = ctx.guild.voice_client
             state = self.service.state(ctx.guild.id)
@@ -195,7 +163,7 @@ class MusicCog(commands.Cog):
                 # Ensure we are connected to a voice channel
                 if voice is None or not (voice.is_connected()):
                     try:
-                        voice = await self.ensure_connected(ctx)
+                        voice = await self.voice_manager.ensure_connected_ctx(ctx)
                     except Exception as e:
                         await self._send(ctx, "스킵 실패", str(e))
                         return
@@ -216,7 +184,7 @@ class MusicCog(commands.Cog):
         재생 중이면 일시정지합니다.
         """
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             voice = ctx.guild.voice_client
             if voice and voice.is_playing():
@@ -235,7 +203,7 @@ class MusicCog(commands.Cog):
         일시정지 상태면 재개합니다.
         """
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             voice = ctx.guild.voice_client
             if voice and voice.is_paused():
@@ -254,7 +222,7 @@ class MusicCog(commands.Cog):
         루프 토글입니다.
         """
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             state = self.service.state(ctx.guild.id)
             state.loop = not state.loop
@@ -266,7 +234,7 @@ class MusicCog(commands.Cog):
     @commands.command(aliases=["remove"])
     async def Remove(self, ctx: commands.Context, arg: str) -> None:
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
             idx = int(arg)
 
             state = self.service.state(ctx.guild.id)
@@ -290,7 +258,7 @@ class MusicCog(commands.Cog):
         현재 큐를 JSON으로 저장합니다.
         """
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             state = self.service.state(ctx.guild.id)
             items = await state.snapshot()
@@ -308,7 +276,7 @@ class MusicCog(commands.Cog):
         JSON 플레이리스트를 불러와 큐에 추가하고, 재생 루프를 시작합니다.
         """
         try:
-            voice = await self.ensure_connected(ctx)
+            voice = await self.voice_manager.ensure_connected_ctx(ctx)
 
             tracks = self.service.load_queue(name)
             if not tracks:
@@ -334,7 +302,7 @@ class MusicCog(commands.Cog):
         음성 채널에서 나갑니다.
         """
         try:
-            self._ensure_guild(ctx)
+            self.voice_manager.ensure_guild_ctx(ctx)
 
             voice = ctx.guild.voice_client
             if voice and voice.is_connected():
