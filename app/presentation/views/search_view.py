@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import discord
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, Any
+
 
 from app.services.music_service import SearchSession
-
-if TYPE_CHECKING:
-    from app.presentation.music_cog import MusicCog
 
 
 def make_embed(title: str = "", description: str = "") -> discord.Embed:
@@ -31,21 +29,30 @@ def render_search_embed(session: SearchSession) -> discord.Embed:
 
 
 class SearchView(discord.ui.View):
-    def __init__(self, cog: "MusicCog", guild_id: int, user_id: int, timeout: float = 180.0) -> None:
+    def __init__(
+        self,
+        controller: Any,
+        guild_id: int,
+        user_id: int,
+        timeout: float = 180.0,
+    ) -> None:
         super().__init__(timeout=timeout)
-        self.cog = cog
+        self.controller = controller
         self.guild_id = guild_id
         self.user_id = user_id
-        self.message: Optional[discord.Message] = None  # Search 명령에서 저장합니다
+        self.message: Optional[discord.Message] = None
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if interaction.user and interaction.user.id == self.user_id:
             return True
-        await interaction.response.send_message("이 버튼은 검색한 사용자만 사용할 수 있습니다.", ephemeral=True)
+        await interaction.response.send_message(
+            "이 버튼은 검색한 사용자만 사용할 수 있습니다.",
+            ephemeral=True,
+        )
         return False
 
     def _sync_button_state(self) -> None:
-        session = self.cog.service.get_search(self.guild_id, self.user_id)
+        session = self.controller.service.get_search(self.guild_id, self.user_id)
         if not session:
             for c in self.children:
                 if isinstance(c, discord.ui.Button):
@@ -60,49 +67,62 @@ class SearchView(discord.ui.View):
                     c.disabled = not session.can_next()
 
     async def on_timeout(self) -> None:
-        # 세션 만료 시 버튼 비활성 + 세션 삭제(원하시면 유지로 바꿀 수 있습니다)
-        self.cog.service.clear_search(self.guild_id, self.user_id)
+        self.controller.service.clear_search(self.guild_id, self.user_id)
         for c in self.children:
             if isinstance(c, discord.ui.Button):
                 c.disabled = True
 
         if self.message:
             try:
-                await self.message.edit(embed=make_embed("세션 만료", "다시 -search 하십시오."), view=self)
+                await self.message.edit(
+                    embed=make_embed("세션 만료", "다시 -search 하십시오."),
+                    view=self,
+                )
             except Exception:
                 pass
 
     @discord.ui.button(label="이전", style=discord.ButtonStyle.secondary, custom_id="prev")
     async def prev_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        session = self.cog.service.get_search(self.guild_id, self.user_id)
+        session = self.controller.service.get_search(self.guild_id, self.user_id)
         if not session:
-            await interaction.response.edit_message(embed=make_embed("세션 만료", "다시 -search 하십시오."), view=None)
+            await interaction.response.edit_message(
+                embed=make_embed("세션 만료", "다시 -search 하십시오."),
+                view=None,
+            )
             return
 
         session.prev()
         self._sync_button_state()
-        await interaction.response.edit_message(embed=render_search_embed(session), view=self)
+        await interaction.response.edit_message(
+            embed=render_search_embed(session),
+            view=self,
+        )
 
     @discord.ui.button(label="다음", style=discord.ButtonStyle.secondary, custom_id="next")
     async def next_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        session = self.cog.service.get_search(self.guild_id, self.user_id)
+        session = self.controller.service.get_search(self.guild_id, self.user_id)
         if not session:
-            await interaction.response.edit_message(embed=make_embed("세션 만료", "다시 -search 하십시오."), view=None)
+            await interaction.response.edit_message(
+                embed=make_embed("세션 만료", "다시 -search 하십시오."),
+                view=None,
+            )
             return
 
         session.next()
         self._sync_button_state()
-        await interaction.response.edit_message(embed=render_search_embed(session), view=self)
+        await interaction.response.edit_message(
+            embed=render_search_embed(session),
+            view=self,
+        )
 
-    # ---- 1/2/3 선택 버튼 ----
     @discord.ui.button(label="1", style=discord.ButtonStyle.primary, custom_id="pick1")
     async def pick1_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await self.cog.handle_pick_interaction(interaction, 1)
+        await self.controller.pick(interaction, 1)
 
     @discord.ui.button(label="2", style=discord.ButtonStyle.primary, custom_id="pick2")
     async def pick2_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await self.cog.handle_pick_interaction(interaction, 2)
+        await self.controller.pick(interaction, 2)
 
     @discord.ui.button(label="3", style=discord.ButtonStyle.primary, custom_id="pick3")
     async def pick3_btn(self, interaction: discord.Interaction, button: discord.ui.Button) -> None:
-        await self.cog.handle_pick_interaction(interaction, 3)
+        await self.controller.pick(interaction, 3)

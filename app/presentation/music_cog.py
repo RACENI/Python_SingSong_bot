@@ -9,6 +9,7 @@ from app.services.music_service import MusicService, SearchSession
 from app.presentation.voice.voice_manager import VoiceManager
 from app.presentation.messaging.sender import make_sender, make_embed
 from app.presentation.search.search_controller import SearchController
+from app.presentation.messaging.interaction_reply import safe_reply
 
 
 
@@ -27,22 +28,9 @@ class MusicCog(commands.Cog):
     async def Search(self, ctx: commands.Context, *, keyword: str) -> None:
         send = make_sender(ctx.channel)
         try:
-            await self.search_controller.start(self, ctx, keyword)
+            await self.search_controller.start(ctx, keyword)
         except Exception as e:
             await send("Search Error", str(e))
-
-    async def handle_pick_interaction(self, interaction: discord.Interaction, n: int) -> None:
-        try:
-            await self.search_controller.pick(interaction, n)
-        except Exception as e:
-            # 4️⃣에서 이 부분을 safe_reply로 통일합니다
-            try:
-                if interaction.response.is_done():
-                    await interaction.followup.send(embed=make_embed("선택 실패", str(e)), ephemeral=True)
-                else:
-                    await interaction.response.send_message(embed=make_embed("선택 실패", str(e)), ephemeral=True)
-            except Exception:
-                pass
 
     # -------------------------
     # 기존 Play는 유지(원하시면 Search 기반으로 완전 통합도 가능합니다)
